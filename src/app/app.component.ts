@@ -1,12 +1,16 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { CredentialsFormComponent, Credentials } from './credentials-form/credentials-form.component';
+import { HttpClientModule } from '@angular/common/http';
+import { CredentialsFormComponent, Credentials, ImportResult } from './credentials-form/credentials-form.component';
+import { ErrorDetails } from './error-details/error-details.component';
 import { ThreeViewerComponent } from './three-viewer/three-viewer.component';
+import { UrdfTreeComponent } from './urdf-tree/urdf-tree.component';
+import { URDFRobot } from './services/urdf-generator.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, CredentialsFormComponent, ThreeViewerComponent],
+  imports: [CommonModule, HttpClientModule, CredentialsFormComponent, ThreeViewerComponent, UrdfTreeComponent],
   template: `
     <div class="app-container">
       <header class="app-header">
@@ -17,8 +21,16 @@ import { ThreeViewerComponent } from './three-viewer/three-viewer.component';
       <main class="main-content">
         <div class="left-panel">
           <app-credentials-form 
-            (credentialsSubmit)="onCredentialsSubmit($event)">
+            (credentialsSubmit)="onCredentialsSubmit($event)"
+            (importResult)="onImportResult($event)">
           </app-credentials-form>
+          
+          <div class="urdf-section" *ngIf="urdfRobot">
+            <app-urdf-tree 
+              [urdfRobot]="urdfRobot"
+              (urdfDownload)="downloadUrdf()">
+            </app-urdf-tree>
+          </div>
         </div>
         
         <div class="right-panel">
@@ -71,6 +83,12 @@ import { ThreeViewerComponent } from './three-viewer/three-viewer.component';
       min-width: 0;
       display: flex;
       flex-direction: column;
+      gap: 1rem;
+    }
+
+    .urdf-section {
+      flex: 1;
+      min-height: 0;
     }
 
     .right-panel {
@@ -96,30 +114,68 @@ import { ThreeViewerComponent } from './three-viewer/three-viewer.component';
 })
 export class AppComponent {
   currentRobotData: any = null;
+  urdfRobot: URDFRobot | null = null;
+  importError: string | null = null;
+  errorDetails: ErrorDetails | null = null;
 
   onCredentialsSubmit(credentials: Credentials) {
     console.log('Credentials submitted:', credentials);
+    this.importError = null;
+    this.errorDetails = null;
     
-    // Here you would typically:
-    // 1. Validate credentials with Onshape API
-    // 2. Fetch the assembly data
-    // 3. Process the 3D model data
-    // 4. Pass the data to the Three.js viewer
-    
-    // For now, we'll simulate this process
+    // Update the 3D viewer with processing status
     this.currentRobotData = {
       credentials: credentials,
       timestamp: new Date().toISOString(),
       status: 'processing'
     };
-    
-    // Simulate API call delay
-    setTimeout(() => {
+  }
+
+  onImportResult(result: ImportResult) {
+    if (result.success && result.urdfRobot) {
+      this.urdfRobot = result.urdfRobot;
+      this.importError = null;
+      this.errorDetails = null;
+      
+      // Update the 3D viewer with the loaded robot data
       this.currentRobotData = {
-        ...this.currentRobotData,
-        status: 'loaded',
-        assemblyData: 'Mock assembly data from Onshape'
+        urdfRobot: result.urdfRobot,
+        timestamp: new Date().toISOString(),
+        status: 'loaded'
       };
-    }, 1000);
+    } else {
+      this.importError = result.error || 'Import failed';
+      this.errorDetails = result.errorDetails || null;
+      this.urdfRobot = null;
+      
+      // Update the 3D viewer with error status
+      this.currentRobotData = {
+        error: this.importError,
+        errorDetails: this.errorDetails,
+        timestamp: new Date().toISOString(),
+        status: 'error'
+      };
+    }
+  }
+
+  downloadUrdf() {
+    if (this.urdfRobot) {
+      // Import the URDF generator service to create XML
+      import('./services/urdf-generator.service').then(module => {
+        const urdfGenerator = new module.UrdfGeneratorService();
+        const urdfXml = urdfGenerator.urdfToXml(this.urdfRobot!);
+        
+        // Create and download the file
+        const blob = new Blob([urdfXml], { type: 'application/xml' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${this.urdfRobot!.name}.urdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      });
+    }
   }
 }
